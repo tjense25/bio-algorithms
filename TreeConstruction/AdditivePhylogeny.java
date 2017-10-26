@@ -61,28 +61,80 @@ public class AdditivePhylogeny {
         return distance_matrix;
     }
 
-    private int getLimbLength(int j) {
+    public int getLimbLength(int j) {
+        return getLimbLength(this.distance_matrix, j);
+    }
+
+    private int getLimbLength(int[][] D, int j) {
         int min = Integer.MAX_VALUE;
-        for(int i = 0; i < n; i++) {
+        for(int i = 0; i < D.length; i++) {
             if(i == j) continue;
-            for(int k = 0; k < n; k++) {
+            for(int k = 0; k < D.length; k++) {
                 if(k == j || k == i) continue;
-                int val = (distance_matrix[i][j] + distance_matrix[j][k] - distance_matrix[i][k])/2;
+                int val = (D[i][j] + D[j][k] - D[i][k])/2;
                 if(val < min) min = val;
             }
         }
         return min;
     }
 
+    private boolean getPath(int k, int l, List<Integer> path, Map<Integer,Map<Integer, Integer>> ap, Set<Integer> visited) {
+        visited.add(k);
+        if(k == l) {
+            path.add(k);
+            return true;
+        }
+        for(int j : ap.get(k).keySet()) {
+            if(visited.contains(j)) continue;
+            if(getPath(j, l, path, ap, visited)) {
+                path.add(k);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Pair<Integer, Pair<Integer, Integer>> getChangedEdge(int k, int l, int x, Map<Integer, Map<Integer, Integer>> ap) {
+        List<Integer> path = new ArrayList<>();
+        Set<Integer> visited = new HashSet<>();
+        getPath(k, l, path, ap, visited);
+        int total = 0;
+        for(int i = path.size() - 1; i >= 0; i--) {
+            if(total >= x) {
+                return new Pair<>(total - x, new Pair<>(path.get(i + 1), path.get(i)));
+            }
+            else {
+                total += ap.get(path.get(i)).get(path.get(i - 1));
+            }
+        }
+        return null;
+    }
+
+    public Map<Integer, Map<Integer, Integer>> getAdditivePhylogeny() {
+        if(this.tree != null) return tree;
+        else this.tree = getAdditivePhylogeny(this.distance_matrix, this.n);
+        return tree;
+    }
+
+    private void Symmetrize(Map<Integer, Map<Integer, Integer>> map) {
+        for(int i : map.keySet()) {
+            for(int j : map.get(i).keySet()) {
+                Pair<Integer, Integer> edge = new Pair<>(i, map.get(i).get(j));
+                addToMap(map, j, edge);
+            }
+        }
+    }
+
     public Map<Integer, Map<Integer, Integer>> getAdditivePhylogeny(int[][] D, int n) {
         if(n == 2) {
             Map<Integer, Map<Integer, Integer>> additive_phylogeny = new TreeMap<>();
-            Map<Integer, Integer> edge1 = new TreeMap<>();
-            edge1.put(0, D[0][1]);
-            additive_phylogeny.put(0, edge1);
+            Map<Integer, Integer> edge = new TreeMap<>();
+            edge.put(0, D[1][0]);
+            additive_phylogeny.put(1, edge);
+            Symmetrize(additive_phylogeny);
             return additive_phylogeny;
         }
-        int limbLength = getLimbLength(n - 1);
+        int limbLength = getLimbLength(D, n - 1);
         for(int i = 0; i < n; i++) {
             D[i][n-1] -= limbLength;
             D[n - 1][i] = D[i][n - 1];
@@ -92,6 +144,7 @@ public class AdditivePhylogeny {
         int[][] new_D = new int[n - 1][n - 1];
         for(int i = 0; i < n - 1; i++) {
             for(int j = 0; j < n - 1; j++) {
+                if(i == j) continue;
                 new_D[i][j] = D[i][j];
                 if(D[i][j] == D[i][n - 1] + D[n -1][j]) {
                     k = i;
@@ -100,19 +153,27 @@ public class AdditivePhylogeny {
             }
         }
         int x = D[k][n - 1];
-        int i = k;
         Map<Integer, Map<Integer, Integer>> additive_phylogeny = getAdditivePhylogeny(new_D, n - 1);
-        int old_length = additive_phylogeny.get(k).get(l);
-            Map<Integer, Integer> old_edge = additive_phylogeny.get(i);
-            old_edge.replace(l)
+        Pair<Integer, Pair<Integer, Integer>> changed_edge = getChangedEdge(k, l, x, additive_phylogeny);
+        if(changed_edge.getKey() > 0) { //There is no node X distance from k, so we must make new node
+            Pair<Integer, Integer> end_points = changed_edge.getValue();
+            int new_inner_node = n + (this.n - 3);
+            int old_edge_length = additive_phylogeny.get(end_points.getKey()).get(end_points.getValue());
+            additive_phylogeny.get(end_points.getKey()).remove(end_points.getValue());
+            additive_phylogeny.get(end_points.getValue()).remove(end_points.getKey());
+            additive_phylogeny.get(end_points.getKey()).put(new_inner_node, old_edge_length - changed_edge.getKey());
+            Map<Integer, Integer> new_edges = new TreeMap<>();
+            new_edges.put(end_points.getValue(), changed_edge.getKey());
+            new_edges.put(n - 1, limbLength);
+            additive_phylogeny.put(new_inner_node, new_edges);
+        }
+        else { //There is already an inner node X distance from k, so we simply add new leaf node to this node
+            int inner_node = changed_edge.getValue().getValue();
             Map<Integer, Integer> new_edge = new TreeMap<>();
-            new_edge.put(n + 2, x);
-            additive_phylogeny.replace(i, new_edge);
-            additive_phylogeny.put(n + 2, old_edge);
-
-
-
-
+            additive_phylogeny.get(inner_node).put(n - 1, limbLength);
+        }
+        Symmetrize(additive_phylogeny);
+        return additive_phylogeny;
     }
 
 
@@ -127,64 +188,83 @@ public class AdditivePhylogeny {
         }
     }
 
+    public static void createDistanceMatrix(String[] args) throws IOException{
+        Scanner scan = new Scanner(new FileReader(args[1])).useDelimiter("((\\s*(->|:)\\s*)|\\s+)");
+        PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+        int n = scan.nextInt();
+        Map<Integer, Map<Integer, Integer>> adjacencyMap = new HashMap<>();
+        while(scan.hasNext()) {
+            int node = scan.nextInt();
+            int connected_node = scan.nextInt();
+            int weight = scan.nextInt();
+            addToMap(adjacencyMap, node, new Pair<>(connected_node, weight));
+        }
+        AdditivePhylogeny ap = new AdditivePhylogeny(n, adjacencyMap);
+        int[][] result = ap.getDistanceMatrix();
+        for(int i = 0; i < n; i++) {
+            for(int j = 0; j < n; j++) {
+                out.print(Integer.toString(result[i][j]) + ' ');
+            }
+            out.print('\n');
+        }
+        scan.close();
+        out.close();
+    }
+
+    private static void getLimbLength(String[] args) throws IOException{
+        Scanner scan = new Scanner(new FileReader(args[1]));
+        PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+        int n = scan.nextInt();
+        int j = scan.nextInt();
+        int[][] distance_matrix = new int[n][n];
+        for(int i = 0; i < n; i++) {
+            for(int k = 0; k < n; k++) {
+                distance_matrix[i][k] = scan.nextInt();
+            }
+        }
+        AdditivePhylogeny ap = new AdditivePhylogeny(n, distance_matrix);
+        out.println(ap.getLimbLength(j));
+        scan.close();
+        out.close();
+    }
+
+    private static void createAdditivePhylogeny(String[] args) throws IOException{
+        Scanner scan = new Scanner(new FileReader(args[1]));
+        PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+        int n = scan.nextInt();
+        int[][] distance_matrix = new int[n][n];
+        for(int i = 0; i < n; i++) {
+            for(int k = 0; k < n; k++) {
+                distance_matrix[i][k] = scan.nextInt();
+            }
+        }
+        AdditivePhylogeny ap = new AdditivePhylogeny(n, distance_matrix);
+        Map<Integer, Map<Integer, Integer>> map = ap.getAdditivePhylogeny();
+        for(int i : map.keySet()) {
+            for(int j : map.get(i).keySet()) {
+                out.println(String.format("%d->%d:%d", i, j, map.get(i).get(j)));
+            }
+        }
+        scan.close();
+        out.close();
+    }
+
     public static void main(String[] args) {
         if (args.length != 3) System.out.println(USAGE);
         else {
             try {
                 if(args[0].equals("-d")) {
-                    Scanner scan = new Scanner(new FileReader(args[1])).useDelimiter("((\\s*(->|:)\\s*)|\\s+)");
-                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
-                    int n = scan.nextInt();
-                    Map<Integer, Map<Integer, Integer>> adjacencyMap = new HashMap<>();
-                    while(scan.hasNext()) {
-                        int node = scan.nextInt();
-                        int connected_node = scan.nextInt();
-                        int weight = scan.nextInt();
-                        addToMap(adjacencyMap, node, new Pair<>(connected_node, weight));
-                    }
-                    AdditivePhylogeny ap = new AdditivePhylogeny(n, adjacencyMap);
-                    int[][] result = ap.getDistanceMatrix();
-                    for(int i = 0; i < n; i++) {
-                        for(int j = 0; j < n; j++) {
-                            out.print(Integer.toString(result[i][j]) + ' ');
-                        }
-                        out.print('\n');
-                    }
-                    scan.close();
-                    out.close();
+                    createDistanceMatrix(args);
                 }
                 else if(args[0].equals("-l")) {
-                    Scanner scan = new Scanner(new FileReader(args[1]));
-                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
-                    int n = scan.nextInt();
-                    int j = scan.nextInt();
-                    int[][] distance_matrix = new int[n][n];
-                    for(int i = 0; i < n; i++) {
-                        for(int k = 0; k < n; k++) {
-                            distance_matrix[i][k] = scan.nextInt();
-                        }
-                    }
-                    AdditivePhylogeny ap = new AdditivePhylogeny(n, distance_matrix);
-                    out.println(ap.getLimbLength(j));
-                    scan.close();
-                    out.close();
+                    getLimbLength(args);
                 }
                 else if(args[0].equals("-p")) {
-                    Scanner scan = new Scanner(new FileReader(args[1]));
-                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
-                    int n = scan.nextInt();
-                    int[][] distance_matrix = new int[n][n];
-                    for(int i = 0; i < n; i++) {
-                        for(int k = 0; k < n; k++) {
-                            distance_matrix[i][k] = scan.nextInt();
-                        }
-                    }
-                    AdditivePhylogeny ap = new AdditivePhylogeny(n, distance_matrix);
+                    createAdditivePhylogeny(args);
                 }
-
-
+                else { System.out.println(USAGE); }
             } catch (IOException e) {
-                System.out.println("ERROR: NOT A VALID FILE NAME");
+                System.out.println("ERROR: NOT A VALID FILE NAME\n" + USAGE);
             }
         }
     }
