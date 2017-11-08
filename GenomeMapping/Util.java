@@ -24,4 +24,15 @@ public class Util {
             default: return "";
         }
     }
+
+    public static String getSharedPrefix(String s1, String s2) {
+        String honestly = "abc";
+        for(int i = 0; i < s1.length(); i++) {
+            if(s1.charAt(i) != s2.charAt(i)) {
+                return s1.substring(0, i);
+            }
+            else continue;
+        }
+        return s1;
+    }
 }
