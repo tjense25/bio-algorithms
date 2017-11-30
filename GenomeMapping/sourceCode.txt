@@ -1,5 +1,328 @@
 package GenomeMapping;
 
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.*;
+
+/**
+ * Created by tjense25 on 11/9/17.
+ */
+public class BWT {
+    private static String USAGE = "ERROR. USAGE:\n" +
+            "java BWM [-option] input_data.txt output_file.txt\n" +
+            "Options:\n" +
+            "-b: produces the Burow-Wheeler Transform of a given String\n" +
+            "-r: reconstruct string given the Burrow_wheeler Transform\n +" +
+            "-l2f: implement Last to First Mapping for a given Burrow Wheeler Transform and an int i\n " +
+            "-m: implement BWMatching given a Burrow-Wheeler Transform and a list of patterns to be matched\n";
+
+    private String text;
+    private Set<String> M;
+    private String bwt;
+    private List<String> first_col = new ArrayList<>();
+    private List<String> last_col = new ArrayList<>();
+    private int[] lastToFirst;
+    private Map<Character, int[]> count_matrix = new HashMap<>();
+    private Map<Character, Integer> firstOccurance = new HashMap<>();
+
+    public BWT(String text, boolean is_text) {
+        if(is_text) {
+            this.text = text;
+            setCyclicRotationsMatrix();
+        }
+        else {
+            this.bwt = text;
+        }
+
+    }
+
+    private void setCyclicRotationsMatrix() {
+        this.M = new TreeSet<>();
+        for(int i = 0; i < text.length(); i++) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(text.substring(text.length() - i));
+            sb.append(text.substring(0, text.length() - i));
+            M.add(sb.toString());
+        }
+    }
+
+    private void setBWT() {
+        StringBuilder sb = new StringBuilder();
+        for(String rotation : M) {
+            sb.append(rotation.charAt(rotation.length() - 1));
+        }
+        this.bwt = sb.toString();
+    }
+
+    private int lastToFirst(int i) {
+        return lastToFirst[i];
+    }
+
+    private void setFirstLastColumn() {
+        Map<Character, Integer> base_count = Util.getBaseCountMap();
+        Set<String> base_set = new TreeSet<>(new BaseComp());
+        for(Character base : base_count.keySet()) {
+            count_matrix.put(base, new int[bwt.length() + 1]);
+        }
+        for(int i = 0; i < bwt.length(); i++) {
+            for(Character countbase : base_count.keySet()) {
+                count_matrix.get(countbase)[i] = base_count.get(countbase);
+            }
+            char base = bwt.charAt(i);
+            if(base == '$') {
+                last_col.add("$");
+                base_set.add("$");
+                continue;
+            }
+            int count = base_count.get(base);
+            last_col.add(String.format("%c%d", base, count));
+            base_set.add(String.format("%c%d", base, count));
+            base_count.replace(base, count + 1);
+        }
+        for(Character countbase : base_count.keySet()) {
+            count_matrix.get(countbase)[bwt.length()] = base_count.get(countbase);
+        }
+        for(String base : base_set) {
+            first_col.add(base);
+            if(firstOccurance.containsKey(base.charAt(0))) continue;
+            firstOccurance.put(base.charAt(0), first_col.size() - 1);
+        }
+        lastToFirst = new int[last_col.size()];
+        for(int i = 0; i < last_col.size(); i++) {
+            if(last_col.get(i).equals("$")) lastToFirst[i] = 0;
+            else {
+                char base = last_col.get(i).charAt(0);
+                int rank = Integer.parseInt(last_col.get(i).substring(1));
+                lastToFirst[i] = firstOccurance.get(base) + rank;
+            }
+        }
+    }
+
+    private void setText() {
+        setFirstLastColumn();
+        StringBuilder sb = new StringBuilder();
+        String current_base = "$";
+        while(sb.length() < bwt.length()) {
+            sb.append(current_base.charAt(0));
+            int next_pos = last_col.indexOf(current_base);
+            current_base = first_col.get(next_pos);
+        }
+        sb.append("$");
+        String cyclic_rotation = sb.toString();
+        this.text = cyclic_rotation.substring(1);
+    }
+
+    public int BWMatching(String pattern) {
+        StringBuilder pat = new StringBuilder(pattern);
+        int top = 0;
+        int bottom = last_col.size() - 1;
+        while(top <= bottom) {
+            if(pat.length() != 0) {
+                char symbol = pat.charAt(pat.length() - 1);
+                pat = pat.deleteCharAt(pat.length() - 1);
+                top = firstOccurance.get(symbol) + count_matrix.get(symbol)[top];
+                bottom = firstOccurance.get(symbol) + count_matrix.get(symbol)[bottom + 1] - 1;
+            }
+            else return bottom - top + 1;
+        }
+        return 0;
+    }
+
+    public String getBWT() {
+        return bwt;
+    }
+
+    public String getText() {
+        return text;
+    }
+
+    public static void main(String[] args) {
+        if (args.length != 3) System.out.println(USAGE);
+        else {
+            try {
+                if(args[0].equals("-b")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String text = scan.next();
+                    boolean is_text = true;
+                    BWT bwt = new BWT(text, is_text);
+                    bwt.setBWT();
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    out.print(bwt.getBWT());
+                    scan.close();
+                    out.close();
+                }
+                else if(args[0].equals("-r")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String bwt = scan.next();
+                    boolean is_text = false;
+                    BWT Bwt = new BWT(bwt, is_text);
+                    Bwt.setText();
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    out.print(Bwt.getText());
+                    scan.close();
+                    out.close();
+                }
+                else if(args[0].equals("-l2f")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String bwt = scan.next();
+                    int i = scan.nextInt();
+                    boolean is_text = false;
+                    BWT Bwt = new BWT(bwt, is_text);
+                    Bwt.setFirstLastColumn();
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    out.print(Bwt.lastToFirst(i));
+                    scan.close();
+                    out.close();
+                }
+                else if(args[0].equals("-m")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String bwt = scan.next();
+                    boolean is_text = false;
+                    BWT Bwt = new BWT(bwt, is_text);
+                    Bwt.setFirstLastColumn();
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    while(scan.hasNext()) {
+                        String pattern = scan.next();
+                        out.print(String.format("%d ", Bwt.BWMatching(pattern)));
+                    }
+                    scan.close();
+                    out.close();
+                }
+                else { System.out.println(USAGE); }
+            } catch (IOException e) {
+                System.out.println("ERROR: NOT A VALID FILE NAME\n" + USAGE);
+            }
+        }
+    }
+
+    class BaseComp implements Comparator<String>{
+
+        @Override
+        public int compare(String s1, String s2) {
+            if(s1.charAt(0) != s2.charAt(0) || s1.length() == s2.length()) return s1.compareTo(s2);
+            else if(s1.length() < s2.length()) return -1;
+            else return 1;
+        }
+    }
+}
+
+========================================================================================================
+package GenomeMapping;
+
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.*;
+
+/**
+ * Created by tjense25 on 11/9/17.
+ */
+public class SuffixArray {
+    private static String USAGE = "ERROR. USAGE:/n +" +
+            "java SuffixArray [-option] input_data.txt output_file.txt +" +
+            "Options: \n" +
+            "-i: initialize Suffix Array from a given string text";
+    private String text;
+    private List<Integer> suffix_arr;
+
+    public SuffixArray(String text) {
+        this.text = text;
+        SuffixTree st = new SuffixTree(text);
+        this.suffix_arr = st.toSuffixArray();
+    }
+
+    public int patternMatchBinarySearch(String pattern) {
+        int minIndex = 0;
+        int maxIndex = text.length();
+        while(minIndex < maxIndex) {
+            int midIndex = (minIndex + maxIndex)/2;
+            if(text.substring(suffix_arr.get(midIndex)).startsWith(pattern)) return midIndex;
+            else if(pattern.compareTo(text.substring(suffix_arr.get(midIndex))) > 0) minIndex = midIndex + 1;
+            else maxIndex = midIndex;
+        }
+        return -1;
+    }
+
+    public List<Integer> matchPatterns(List<String> patterns) {
+        List<Integer> indices = new ArrayList<>();
+        for(String pattern : patterns) {
+           int match = patternMatchBinarySearch(pattern);
+           if(match != -1) {
+               indices.add(suffix_arr.get(match));
+               int above = 1;
+               int below = 1;
+               while(above != 0 && match + above < suffix_arr.size()) {
+                   if(text.substring(suffix_arr.get(match + above)).startsWith(pattern)) {
+                       indices.add(suffix_arr.get(match + above));
+                       above++;
+                   }
+                   else above = 0;
+               }
+               while(below != 0 && match - above >= 0) {
+                   if(text.substring(suffix_arr.get(match - below)).startsWith(pattern)) {
+                       indices.add(suffix_arr.get(match - below));
+                       below++;
+                   }
+                   else below = 0;
+               }
+           }
+        }
+        return indices;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        for(int i = 0; i < suffix_arr.size(); i++) {
+            sb.append(suffix_arr.get(i));
+            if(i < suffix_arr.size() - 1) sb.append(", ");
+        }
+        return sb.toString();
+    }
+
+    public static void main(String[] args) {
+        if (args.length != 3) System.out.println(USAGE);
+        else {
+            try {
+                if(args[0].equals("-i")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String text = scan.next();
+                    SuffixArray sa = new SuffixArray(text);
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    out.print(sa.toString());
+                    scan.close();
+                    out.close();
+                }
+                else if(args[0].equals("-m")) {
+                    Scanner scan = new Scanner(new FileReader(args[1]));
+                    String text = scan.next();
+                    text = text + "$";
+                    List<String> patterns = new ArrayList<>();
+                    while(scan.hasNext()) {
+                        patterns.add(scan.next());
+                    }
+                    SuffixArray sa = new SuffixArray(text);
+                    List<Integer> indices = sa.matchPatterns(patterns);
+                    PrintWriter out = new PrintWriter(new FileWriter(args[2]));
+                    for(int i = 0; i < indices.size(); i++) {
+                        out.print(String.format("%d ", indices.get(i)));
+                    }
+                    scan.close();
+                    out.close();
+                }
+                else { System.out.println(USAGE); }
+            } catch (IOException e) {
+                System.out.println("ERROR: NOT A VALID FILE NAME\n" + USAGE);
+            }
+        }
+    }
+}
+========================================================================================================
+package GenomeMapping;
+
 import java.io.*;
 import java.util.*;
 
@@ -28,7 +351,7 @@ public class SuffixTree {
         public Node(int index, String word) {
             this.index = index;
             this.word = word;
-            this.edges = new HashMap<>();
+            this.edges = new TreeMap<>();
         }
 
         public void addSuffix(String suffix, int index, int i) {
@@ -122,6 +445,13 @@ public class SuffixTree {
                 return false;
             }
         }
+
+        public void preorder(List<Integer> leafNodes) {
+            for(String edge : edges.keySet()) {
+                edges.get(edge).preorder(leafNodes);
+            }
+            if(edges.size() == 0) leafNodes.add(this.index);
+        }
     }
 
     public SuffixTree(String text) {
@@ -129,6 +459,12 @@ public class SuffixTree {
         for(int i = 0; i < text.length(); i++) {
             root.addSuffix(text.substring(i), i,0);
         }
+    }
+
+    public List<Integer> toSuffixArray() {
+        List<Integer> suffixArray = new ArrayList<>();
+        this.root.preorder(suffixArray);
+        return suffixArray;
     }
 
 
@@ -206,7 +542,6 @@ public class SuffixTree {
         }
     }
 }
-
 ==========================================================================================================
 package GenomeMapping;
 
@@ -347,9 +682,11 @@ public class Trie {
         }
     }
 }
-
 ==========================================================================================================
 package GenomeMapping;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by tjense25 on 11/7/17.
@@ -377,7 +714,6 @@ public class Util {
     }
 
     public static String getSharedPrefix(String s1, String s2) {
-        String honestly = "abc";
         for(int i = 0; i < s1.length(); i++) {
             if(s1.charAt(i) != s2.charAt(i)) {
                 return s1.substring(0, i);
@@ -385,5 +721,14 @@ public class Util {
             else continue;
         }
         return s1;
+    }
+
+    public static Map<Character, Integer> getBaseCountMap() {
+        Map<Character, Integer> base_count = new HashMap<>();
+        base_count.put('A', 0);
+        base_count.put('C', 0);
+        base_count.put('G', 0);
+        base_count.put('T', 0);
+        return base_count;
     }
 }
